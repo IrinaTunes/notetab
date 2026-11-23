@@ -55,6 +55,12 @@ def total_pages(pdf: Path) -> int:
     return 0
 
 
+def ascii_name(name: str) -> str:
+    """HTTP-заголовки допускают только latin-1 — кириллические имена заменяем."""
+    safe = name.encode("ascii", "ignore").decode().strip()
+    return safe or "book.pdf"
+
+
 def call_service(service: str, pdf: Path, page: int, timeout: int = 400) -> dict:
     data = pdf.read_bytes()
     request = urllib.request.Request(
@@ -63,7 +69,7 @@ def call_service(service: str, pdf: Path, page: int, timeout: int = 400) -> dict
         method="POST",
         headers={
             "Content-Type": "application/pdf",
-            "X-Filename": pdf.name,
+            "X-Filename": ascii_name(pdf.name),
             "X-Pages": str(page),
         },
     )
@@ -89,6 +95,27 @@ def to_tabs(midis: list[int], tuning: str, max_fret: int, stretch: int) -> dict:
     return json.loads(result.stdout.decode("utf-8"))
 
 
+def wrap_tab(tab: str, width: int = 32) -> str:
+    """Разбить длинные строки таба на блоки по width символов — иначе страница книги
+    превращается в одну непереносимую строку в 900 знаков."""
+    lines = tab.splitlines()
+    if len(lines) < 6:
+        return tab
+    if len(lines) > 6:            # несколько систем подряд
+        return tab
+    labels = [line.split("|", 1)[0] for line in lines]
+    bodies = [line.split("|", 1)[1].rsplit("|", 1)[0] if "|" in line else "" for line in lines]
+    longest = max((len(b) for b in bodies), default=0)
+    if longest <= width:
+        return tab
+    out: list[str] = []
+    for start in range(0, longest, width):
+        for label, body in zip(labels, bodies):
+            out.append(f"{label}|{body[start:start + width]}")
+        out.append("")
+    return "\n".join(out).rstrip()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="PDF с нотами → табы, пакетно")
     parser.add_argument("pdf", type=Path)
@@ -100,6 +127,12 @@ def main() -> int:
     parser.add_argument("--max-fret", type=int, default=12)
     parser.add_argument("--stretch", type=int, default=4)
     parser.add_argument("--skip-empty", action="store_true", help="не писать страницы без нот")
+    parser.add_argument(
+        "--octave",
+        choices=("auto", "none", "-12"),
+        default="auto",
+        help="гитарная нотация пишется на октаву выше звучания; auto = сдвинуть, если медиана нот выше 70",
+    )
     args = parser.parse_args()
 
     pdf = args.pdf.expanduser().resolve()
@@ -148,8 +181,21 @@ def main() -> int:
         notes = []
         for chunk in payload.get("pages", []):
             notes.extend(chunk.get("notes", []))
-        midis = [int(n["midi"]) for n in notes if n.get("midi")]
+        midis = [int(n["sounding"] or n["midi"]) for n in notes if n.get("midi")]
         elapsed = time.time() - page_started
+
+        # Гитарная нотация записывается на октаву выше реального звучания.
+        # Если Audiveris не распознал ключ 8vb, все ноты окажутся на октаву выше.
+        shifted = 0
+        if midis and args.octave != "none":
+            median = sorted(midis)[len(midis) // 2]
+            if args.octave == "-12" or (args.octave == "auto" and median > 70):
+                midis = [m - 12 for m in midis]
+                shifted = 12
+
+        playable = [m for m in midis if 40 <= m <= 79]
+        dropped_notes = len(midis) - len(playable)
+        midis = playable
         print(f"нот {len(midis)}, {elapsed:.0f} с")
 
         if not midis and args.skip_empty:
@@ -166,7 +212,7 @@ def main() -> int:
             body = [f"# {pdf.stem}, страница {page}", f"# нот: {len(midis)}", ""]
             for number, variant in enumerate(variants[: args.variants], start=1):
                 body.append(f"== {number}. {variant.get('title')} — {variant.get('description')}")
-                body.append(variant.get("tab", ""))
+                body.append(wrap_tab(variant.get("tab", "")))
                 body.append("")
             if not variants:
                 body.append(f"# раскладка не удалась: {result.get('error', 'нет вариантов')}")
@@ -177,6 +223,8 @@ def main() -> int:
             "notes": len(midis),
             "seconds": round(elapsed, 1),
             "warnings": payload.get("warnings", [])[:3],
+            "shifted": shifted,
+            "dropped_notes": dropped_notes,
         })
 
     total_seconds = time.time() - started
