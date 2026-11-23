@@ -134,9 +134,13 @@ class Handler(BaseHTTPRequestHandler):
         if origin and ALLOWED_ORIGIN_RE.match(origin):
             self.send_header("Access-Control-Allow-Origin", origin)
             self.send_header("Vary", "Origin")
+            # Chrome (Private Network Access): https-страница вправе обращаться
+            # к 127.0.0.1 только если сервер это явно разрешает.
+            self.send_header("Access-Control-Allow-Private-Network", "true")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header(
-            "Access-Control-Allow-Headers", "Content-Type, X-Filename"
+            "Access-Control-Allow-Headers",
+            "Content-Type, X-Filename, X-Pages, Access-Control-Request-Private-Network",
         )
         self.send_header("Access-Control-Max-Age", "600")
 

@@ -123,9 +123,12 @@ G|--1--2--0--|"></textarea>
         </div>
 
         <div id="service-block" class="service-block" hidden>
-          <h2>Локальный сервис не запущен</h2>
-          <p>Распознавание работает офлайн, в отдельном процессе на вашем компьютере. Запустите его одной командой в терминале из корня репозитория:</p>
+          <h2>Локальный сервис не запущен — или браузер блокирует запрос</h2>
+          <p><b>1.</b> Запустите сервис одной командой из корня репозитория:</p>
           <pre class="mono">cd omr-service &amp;&amp; ./run.sh</pre>
+          <p><b>2.</b> Если сервис уже запущен, но запрос не проходит: новые Chrome и Safari блокируют обращения со страницы <code>https://…</code> к <code>127.0.0.1</code>. Разрешите доступ, когда браузер спросит («искать устройства в локальной сети»), либо откройте сайт локально:</p>
+          <pre class="mono">python3 -m http.server 8080
+# затем http://localhost:8080</pre>
           <p class="hint">Сервис слушает <code>127.0.0.1:8765</code>. Нужны <code>poppler</code> (pdftoppm) и <code>tesseract</code>; подробности — в README, раздел «PDF → таб».</p>
           <button type="button" id="btn-service-recheck" class="primary">Проверить снова</button>
         </div>

@@ -495,7 +495,7 @@ function renderOcrResult(data, file) {
   ocrState = { data, title: baseName(file && file.name), name: baseName(file && file.name) };
   ocrVariants = [];
   $('ocr-tab').value = data.combined_tab || '';
-  $('ocr-badge').textContent = `— ${pages.length} стр., цифр ${tokens}, отброшено ${dropped}`;
+  $('ocr-badge').textContent = `— ${pages.length} стр., цифр ${tokens}, отброшено токенов ${dropped}`;
 
   const warnings = [...(data.warnings || [])];
   if (!withTab) {

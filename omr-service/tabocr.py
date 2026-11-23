@@ -474,8 +474,8 @@ def process_pdf(
                 warnings.append(f"Стр. {number}: ТАБ-стана не найдено (только нотный стан или пустая).")
             if page["dropped"]:
                 warnings.append(
-                    f"Стр. {number}: отброшено цифр {page['dropped']} "
-                    f"(лад > {MAX_OCR_FRET}, низкая уверенность, вне полосы таба)."
+                    f"Стр. {number}: отброшено токенов {page['dropped']} "
+                    f"(вне ТАБ-полосы, низкая уверенность, лад > {MAX_OCR_FRET} или склейка линий)."
                 )
 
     combined = merge_tabs(tabs)

@@ -19,6 +19,12 @@ sudo apt install poppler-utils tesseract-ocr   # Debian/Ubuntu
 
 Порт можно поменять: `NOTETAB_OMR_PORT=9100 ./run.sh` (тогда поправьте `SERVICE_URL` в `assets/app.js`).
 
+## CORS и локальная сеть
+
+Сервис отвечает заголовками `Access-Control-Allow-Origin` для `https://irinatunes.github.io` и `http://localhost:*` / `http://127.0.0.1:*`, плюс `Access-Control-Allow-Private-Network: true` (Private Network Access в Chrome).
+
+Даже с этими заголовками новые Chrome/Safari могут блокировать запрос со страницы `https://…` к `127.0.0.1` до явного разрешения пользователя («Local network access»). Если браузер не спрашивает и запрос падает с `TypeError: Failed to fetch`, откройте сайт локально через `python3 -m http.server 8080` и работайте с `http://localhost:8080`.
+
 ## Проверка
 
 ```bash
