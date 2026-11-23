@@ -20,6 +20,7 @@
     <nav class="tabs" role="tablist" aria-label="Режим работы">
       <button type="button" role="tab" id="tab-btn-tab2notes" aria-controls="panel-tab2notes" aria-selected="true" data-mode="tab2notes">Таб → ноты</button>
       <button type="button" role="tab" id="tab-btn-notes2tab" aria-controls="panel-notes2tab" aria-selected="false" data-mode="notes2tab">Ноты → таб</button>
+      <button type="button" role="tab" id="tab-btn-pdf2tab" aria-controls="panel-pdf2tab" aria-selected="false" data-mode="pdf2tab">PDF → таб</button>
     </nav>
 
     <main>
@@ -105,6 +106,67 @@ G|--1--2--0--|"></textarea>
         <p id="notes-error" class="error" role="alert" hidden></p>
 
         <section id="variants" aria-live="polite"></section>
+      </section>
+
+      <!-- PDF → ТАБ -->
+      <section id="panel-pdf2tab" role="tabpanel" aria-labelledby="tab-btn-pdf2tab" class="panel" hidden>
+        <p class="hint">
+          Скан или PDF с <b>ТАБ-станами</b> распознаёт локальный сервис: он рендерит страницы в 300 dpi,
+          находит 6-линейные станы и читает цифры ладов OCR. Признанный таб можно поправить руками
+          и превратить в варианты аппликатуры. Файл никуда не отправляется — только на 127.0.0.1.
+        </p>
+
+        <div id="dropzone" class="dropzone" tabindex="0" role="button" aria-label="Выбрать PDF с табулатурой">
+          <strong>Перетащите PDF сюда</strong>
+          <span>или нажмите, чтобы выбрать файл (application/pdf)</span>
+          <input type="file" id="pdf-input" accept="application/pdf,.pdf" hidden>
+        </div>
+
+        <div id="service-block" class="service-block" hidden>
+          <h2>Локальный сервис не запущен</h2>
+          <p>Распознавание работает офлайн, в отдельном процессе на вашем компьютере. Запустите его одной командой в терминале из корня репозитория:</p>
+          <pre class="mono">cd omr-service &amp;&amp; ./run.sh</pre>
+          <p class="hint">Сервис слушает <code>127.0.0.1:8765</code>. Нужны <code>poppler</code> (pdftoppm) и <code>tesseract</code>; подробности — в README, раздел «PDF → таб».</p>
+          <button type="button" id="btn-service-recheck" class="primary">Проверить снова</button>
+        </div>
+
+        <p id="pdf-status" class="status" aria-live="polite" hidden></p>
+        <div id="pdf-progress" class="progress" hidden><span></span></div>
+        <p id="pdf-error" class="error" role="alert" hidden></p>
+
+        <section id="ocr-result" hidden aria-live="polite">
+          <div class="panel-head">
+            <h2>Распознанный таб <span id="ocr-badge" class="badge"></span></h2>
+            <div class="actions">
+              <button type="button" id="btn-ocr-txt">⬇ .txt</button>
+              <button type="button" id="btn-ocr-json">⬇ .json</button>
+              <button type="button" id="btn-ocr-xml">⬇ .musicxml</button>
+              <button type="button" id="btn-ocr-mid">⬇ .mid</button>
+              <button type="button" id="btn-ocr-pdf">🖨 PDF</button>
+            </div>
+          </div>
+
+          <ul id="ocr-warnings" class="warnings"></ul>
+
+          <div class="field">
+            <label for="ocr-tab">Проверьте распознанное: OCR иногда склеивает соседние цифры — поправьте таб перед конвертацией</label>
+            <textarea id="ocr-tab" class="mono big" spellcheck="false" rows="8"></textarea>
+          </div>
+
+          <div class="controls">
+            <label class="ctl" for="tuning-pdf">Строй
+              <select id="tuning-pdf">
+                <option value="standard" selected>Стандартный (E A D G B E)</option>
+                <option value="drop-d">Drop D (D A D G B E)</option>
+                <option value="half-step-down">На полтона ниже (Eb Ab Db Gb Bb Eb)</option>
+              </select>
+            </label>
+            <button type="button" id="btn-ocr-apply" class="primary">Получить варианты аппликатуры</button>
+          </div>
+
+          <p id="ocr-error" class="error" role="alert" hidden></p>
+          <section id="ocr-variants" aria-live="polite"></section>
+        </section>
       </section>
     </main>
 

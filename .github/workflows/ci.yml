@@ -30,12 +30,16 @@ jobs:
           python3 - <<'PY'
           import pathlib, sys
           html = pathlib.Path("index.html").read_text(encoding="utf-8")
-          required = ['<html lang="ru"', 'name="viewport"', 'assets/styles.css', 'assets/app.js', '<main', '</html>']
+          required = ['<html lang="ru"', 'name="viewport"', 'assets/styles.css', 'assets/app.js', '<main', '</html>',
+                      'data-mode="pdf2tab"', 'id="dropzone"', 'id="ocr-tab"', 'id="btn-ocr-apply"']
           missing = [r for r in required if r not in html]
           if missing:
               sys.exit(f"В index.html не хватает: {missing}")
           for asset in ("assets/styles.css", "assets/app.js", "assets/favicon.svg",
-                        "src/notes.js", "src/tab.js", "src/solver.js", "src/midi.js", "src/tuning.js"):
+                        "src/notes.js", "src/tab.js", "src/solver.js", "src/midi.js", "src/tuning.js",
+                        "src/musicxml.js", "src/printable.js",
+                        "omr-service/server.py", "omr-service/tabocr.py",
+                        "omr-service/run.sh", "omr-service/requirements.txt"):
               if not pathlib.Path(asset).is_file():
                   sys.exit(f"Нет файла {asset}")
           print("HTML и ассеты на месте")
@@ -48,3 +52,18 @@ jobs:
           name: test-report
           path: test-report.xml
           if-no-files-found: warn
+
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Зависимости сервиса
+        run: pip install numpy pillow pytest
+
+      - name: Тесты распознавания (pytest)
+        run: python -m pytest omr-service/tests -q
