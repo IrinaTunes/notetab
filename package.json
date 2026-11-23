@@ -1,0 +1,11 @@
+{
+  "name": "notetab",
+  "version": "1.0.0",
+  "description": "Конвертер нот и гитарных табулатур в браузере",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "test": "node --test test/",
+    "serve": "python3 -m http.server 8080"
+  }
+}

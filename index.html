@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>notetab — ноты ↔ табулатура для гитары</title>
+  <meta name="description" content="Перевод гитарных табулатур в ноты и обратно. Несколько вариантов аппликатуры, прослушивание, скачивание .txt/.csv/.mid. Работает офлайн.">
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+  <header class="site-head">
+    <div class="wrap">
+      <h1><span class="logo">♪</span> notetab</h1>
+      <p class="tagline">Ноты ↔ табулатура для гитары. Несколько вариантов аппликатуры, прослушивание и скачивание. Всё считается в браузере, без интернета.</p>
+    </div>
+  </header>
+
+  <div class="wrap">
+    <nav class="tabs" role="tablist" aria-label="Режим работы">
+      <button type="button" role="tab" id="tab-btn-tab2notes" aria-controls="panel-tab2notes" aria-selected="true" data-mode="tab2notes">Таб → ноты</button>
+      <button type="button" role="tab" id="tab-btn-notes2tab" aria-controls="panel-notes2tab" aria-selected="false" data-mode="notes2tab">Ноты → таб</button>
+    </nav>
+
+    <main>
+      <!-- ТАБ → НОТЫ -->
+      <section id="panel-tab2notes" role="tabpanel" aria-labelledby="tab-btn-tab2notes" class="panel">
+        <div class="field">
+          <label for="tab-input">Табулатура — 6 строк, подписи <code>e B G D A E</code> (1-я строка = тонкая струна)</label>
+          <textarea id="tab-input" class="mono" spellcheck="false" rows="8" placeholder="e|--0--1--3--|
+B|--0--1--0--|
+G|--1--2--0--|"></textarea>
+        </div>
+
+        <div class="controls">
+          <label class="ctl" for="tuning-tab">Строй
+            <select id="tuning-tab">
+              <option value="standard" selected>Стандартный (E A D G B E)</option>
+              <option value="drop-d">Drop D (D A D G B E)</option>
+              <option value="half-step-down">На полтона ниже (Eb Ab Db Gb Bb Eb)</option>
+            </select>
+          </label>
+          <button type="button" id="btn-tab-run" class="primary">Перевести</button>
+          <button type="button" id="btn-tab-example" class="ghost">Пример</button>
+        </div>
+
+        <p id="tab-error" class="error" role="alert" hidden></p>
+
+        <section id="tab-result" hidden aria-live="polite">
+          <div class="panel-head">
+            <h2>Ноты <span id="tab-count" class="badge"></span></h2>
+            <div class="actions">
+              <button type="button" id="btn-tab-play">▶ Прослушать</button>
+              <button type="button" id="btn-tab-txt">⬇ .txt</button>
+              <button type="button" id="btn-tab-csv">⬇ .csv</button>
+              <button type="button" id="btn-tab-mid">⬇ .mid</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table id="tab-table">
+              <thead>
+                <tr>
+                  <th>#</th><th>Нота</th><th>Октава</th><th>MIDI</th><th>Струна</th><th>Лад</th><th>Название</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <pre id="tab-notes-line" class="mono line-box"></pre>
+        </section>
+      </section>
+
+      <!-- НОТЫ → ТАБ -->
+      <section id="panel-notes2tab" role="tabpanel" aria-labelledby="tab-btn-notes2tab" class="panel" hidden>
+        <div class="field">
+          <label for="notes-input">Ноты — латиницей или по-русски, с октавой: <code>E4 F4 G4</code>, <code>ми4 фа4 соль4</code>, <code>C#4</code></label>
+          <textarea id="notes-input" class="mono" spellcheck="false" rows="4" placeholder="E4 E4 F4 G4 G4 F4 E4 D4"></textarea>
+        </div>
+
+        <div class="controls">
+          <label class="ctl" for="tuning-notes">Строй
+            <select id="tuning-notes">
+              <option value="standard" selected>Стандартный (E A D G B E)</option>
+              <option value="drop-d">Drop D (D A D G B E)</option>
+              <option value="half-step-down">На полтона ниже (Eb Ab Db Gb Bb Eb)</option>
+            </select>
+          </label>
+          <label class="ctl" for="max-fret">Максимальный лад
+            <select id="max-fret">
+              <option>5</option><option>6</option><option>7</option><option>8</option><option>9</option>
+              <option selected>12</option><option>13</option><option>14</option><option>15</option>
+            </select>
+          </label>
+          <label class="ctl" for="stretch">Растяжка, ладов
+            <select id="stretch">
+              <option value="3">3</option>
+              <option value="4" selected>4</option>
+              <option value="5">5</option>
+            </select>
+          </label>
+          <button type="button" id="btn-notes-run" class="primary">Показать варианты</button>
+          <button type="button" id="btn-notes-example" class="ghost">Пример</button>
+        </div>
+
+        <p id="notes-error" class="error" role="alert" hidden></p>
+
+        <section id="variants" aria-live="polite"></section>
+      </section>
+    </main>
+
+    <footer class="site-foot">
+      <p>Ритм в табулатуре не хранится: переводится только высота нот. Аппликатура на гитаре неоднозначна, поэтому все варианты равноправны — выбирайте удобный. Лады 0–15, только гитара.</p>
+    </footer>
+  </div>
+
+  <script type="module" src="assets/app.js"></script>
+</body>
+</html>

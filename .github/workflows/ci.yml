@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+
+      - name: Тесты (node --test)
+        run: |
+          node --test \
+            --test-reporter=spec --test-reporter-destination=stdout \
+            --test-reporter=junit --test-reporter-destination=test-report.xml
+
+      - name: Проверка статики
+        run: |
+          python3 - <<'PY'
+          import pathlib, sys
+          html = pathlib.Path("index.html").read_text(encoding="utf-8")
+          required = ['<html lang="ru"', 'name="viewport"', 'assets/styles.css', 'assets/app.js', '<main', '</html>']
+          missing = [r for r in required if r not in html]
+          if missing:
+              sys.exit(f"В index.html не хватает: {missing}")
+          for asset in ("assets/styles.css", "assets/app.js", "assets/favicon.svg",
+                        "src/notes.js", "src/tab.js", "src/solver.js", "src/midi.js", "src/tuning.js"):
+              if not pathlib.Path(asset).is_file():
+                  sys.exit(f"Нет файла {asset}")
+          print("HTML и ассеты на месте")
+          PY
+
+      - name: Отчёт о тестах
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-report
+          path: test-report.xml
+          if-no-files-found: warn
