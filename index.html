@@ -21,6 +21,7 @@
       <button type="button" role="tab" id="tab-btn-tab2notes" aria-controls="panel-tab2notes" aria-selected="true" data-mode="tab2notes">Таб → ноты</button>
       <button type="button" role="tab" id="tab-btn-notes2tab" aria-controls="panel-notes2tab" aria-selected="false" data-mode="notes2tab">Ноты → таб</button>
       <button type="button" role="tab" id="tab-btn-pdf2tab" aria-controls="panel-pdf2tab" aria-selected="false" data-mode="pdf2tab">PDF → таб</button>
+      <button type="button" role="tab" id="tab-btn-pdfnotes" aria-controls="panel-pdfnotes" aria-selected="false" data-mode="pdfnotes">Ноты PDF → таб</button>
     </nav>
 
     <main>
@@ -169,6 +170,115 @@ G|--1--2--0--|"></textarea>
 
           <p id="ocr-error" class="error" role="alert" hidden></p>
           <section id="ocr-variants" aria-live="polite"></section>
+        </section>
+      </section>
+
+      <!-- НОТЫ PDF → ТАБ -->
+      <section id="panel-pdfnotes" role="tabpanel" aria-labelledby="tab-btn-pdfnotes" class="panel" hidden>
+        <p class="disclaimer">
+          <b>OMR ошибается в ритме и иногда в высотах</b> — проверьте список нот перед конвертацией.
+          Audiveris не переносит ритм, размер и темп, а высоты на плохих сканах сдвигаются на полутон.
+          Список ниже правится: так вы получаете верную мелодию, а не «как распозналось».
+        </p>
+
+        <div class="split">
+          <div class="split-col">
+            <h2>1. PDF с нотами</h2>
+            <p class="hint">
+              Страницы рендерятся в 300 dpi на вашем компьютере и распознаются локальным сервисом
+              (Audiveris). Файл никуда не отправляется — только на <code>127.0.0.1</code>.
+              Для сканов ТАБ-табулатур — соседняя вкладка «PDF → таб».
+            </p>
+            <div id="notes-drop" class="dropzone" tabindex="0" role="button" aria-label="Выбрать PDF с нотами">
+              <strong>Перетащите PDF с нотами сюда</strong>
+              <span>или нажмите, чтобы выбрать файл (application/pdf)</span>
+              <input type="file" id="notes-pdf" accept="application/pdf,.pdf" hidden>
+            </div>
+            <label class="ctl" for="notes-pages">Страницы
+              <input type="text" id="notes-pages" class="mono" value="1" size="8" placeholder="1-3">
+            </label>
+            <p class="hint">Одна страница ≈ 8–10 секунд. «1-3» — несколько страниц подряд.</p>
+          </div>
+
+          <div class="split-col">
+            <h2>2. Или MusicXML</h2>
+            <p class="hint">
+              Уже есть цифровой файл? MuseScore / Guitar Pro / Sibelius: «Экспорт → MusicXML».
+              Принимаем <code>.musicxml</code>, <code>.xml</code> и <code>.mxl</code> — без сервиса и интернета.
+            </p>
+            <label class="file-button" for="notes-xml">Выбрать MusicXML…
+              <input type="file" id="notes-xml" accept=".musicxml,.xml,.mxl,application/vnd.recordare.musicxml+xml" hidden>
+            </label>
+            <p id="notes-xml-status" class="status" aria-live="polite" hidden></p>
+          </div>
+        </div>
+
+        <div id="notes-service" class="service-block" hidden>
+          <h2>Локальный сервис не запущен — или браузер блокирует запрос</h2>
+          <p><b>1.</b> Запустите сервис из корня репозитория:</p>
+          <pre class="mono">cd omr-service &amp;&amp; ./run.sh</pre>
+          <p><b>2.</b> Нужен Audiveris (OMR нот):</p>
+          <pre class="mono">brew install --cask audiveris
+export AUDIVERIS_APP=/Applications/Audiveris.app</pre>
+          <p><b>3.</b> Если сервис работает, а запрос не проходит, — Chrome/Safari блокируют обращения со страницы <code>https://…</code> к <code>127.0.0.1</code>. Разрешите доступ в запросе браузера или откройте сайт локально:</p>
+          <pre class="mono">python3 -m http.server 8080
+# затем http://localhost:8080</pre>
+          <p class="hint">Без Audiveris работает загрузка MusicXML — это второй способ, он всегда доступен.</p>
+          <button type="button" id="btn-notes-recheck" class="primary">Проверить снова</button>
+        </div>
+
+        <p id="notes-status" class="status" aria-live="polite" hidden></p>
+        <div id="notes-progress" class="progress" hidden><span></span></div>
+        <p id="notes-error" class="error" role="alert" hidden></p>
+
+        <section id="notes-result" hidden aria-live="polite">
+          <div class="panel-head">
+            <h2>Распознанные ноты <span id="notes-badge" class="badge"></span></h2>
+            <div class="actions">
+              <button type="button" id="btn-notes-txt">⬇ .txt</button>
+              <button type="button" id="btn-notes-json">⬇ .json</button>
+              <button type="button" id="btn-notes-mid">⬇ .mid</button>
+            </div>
+          </div>
+
+          <ul id="notes-warnings" class="warnings"></ul>
+
+          <canvas id="notes-staff" class="staff-preview" width="900" height="150"
+                  aria-label="Превью нотоносца с распознанными нотами"></canvas>
+
+          <p class="hint" id="notes-editor-hint">
+            Каждая нота правится: <b>↑/↓</b> — полутон, <b>⇑/⇓</b> — октава, <b>＋</b> — вставить ноту после, <b>✕</b> — удалить.
+            Ноты вне диапазона гитары выделены красным.
+          </p>
+          <div id="notes-rows" class="note-rows"></div>
+
+          <div class="controls">
+            <label class="ctl" for="notes-tuning">Строй
+              <select id="notes-tuning">
+                <option value="standard" selected>Стандартный (E A D G B E)</option>
+                <option value="drop-d">Drop D (D A D G B E)</option>
+                <option value="half-step-down">На полтона ниже (Eb Ab Db Gb Bb Eb)</option>
+              </select>
+            </label>
+            <label class="ctl" for="notes-maxfret">Максимальный лад
+              <select id="notes-maxfret">
+                <option>5</option><option>6</option><option>7</option><option>8</option><option>9</option>
+                <option selected>12</option><option>13</option><option>14</option><option>15</option>
+              </select>
+            </label>
+            <label class="ctl" for="notes-stretch">Растяжка, ладов
+              <select id="notes-stretch">
+                <option value="3">3</option>
+                <option value="4" selected>4</option>
+                <option value="5">5</option>
+              </select>
+            </label>
+            <button type="button" id="btn-notes-play">▶ Прослушать</button>
+            <button type="button" id="btn-notes-variants" class="primary">→ Варианты табов</button>
+          </div>
+
+          <p id="notes-variants-error" class="error" role="alert" hidden></p>
+          <section id="notes-variants" aria-live="polite"></section>
         </section>
       </section>
     </main>

@@ -1,4 +1,4 @@
-# omr-service — локальный распознаватель «PDF → таб»
+# omr-service — локальный распознаватель «PDF → таб» и «Ноты PDF → ноты»
 
 Отдельный процесс для вкладки **«PDF → таб»** на сайте notetab. Работает только на `127.0.0.1:8765`, наружу не смотрит, файлы не хранит (временная папка живёт один запрос).
 
@@ -29,7 +29,7 @@ sudo apt install poppler-utils tesseract-ocr   # Debian/Ubuntu
 
 ```bash
 curl -s http://127.0.0.1:8765/health
-# {"ok": true, "version": "0.1.0", "tesseract": true}
+# {"ok": true, "version": "0.2.0", "tesseract": true, "audiveris": true, "engine": "Audiveris 5.11.0"}
 ```
 
 ## API
@@ -70,9 +70,26 @@ curl -s -X POST --data-binary @scan.pdf \
 
 `combined_tab` — 6 строк ASCII-таба, который сразу разбирается `parseTab` на сайте (системы и страницы разделены `|`).
 
-### `POST /omr/pdf` (экспериментальный)
+### `POST /notes/pdf`
 
-Для нотных изданий. Если найден `Audiveris.app` (env `AUDIVERIS_APP` или `/Users/irina/projects/omr-spike/Audiveris.app`), сервис гоняет batch-импорт и отдаёт MusicXML. Если Audiveris нет — **501** с объяснением. Основной путь для гитарных табов — `/tab/pdf`: полный OMR не читает ТАБ-станы и путает высоты.
+Для нотных изданий: Audiveris → MusicXML → JSON со списком нот (см. `notesxml.py`).
+
+```bash
+curl -s -X POST --data-binary @theme.pdf -H "Content-Type: application/pdf" \
+     -H "X-Pages: 1" http://127.0.0.1:8765/notes/pdf
+```
+
+Ответ: `{pages:[{page, notes:[{midi, name, duration, type, staff, voice, onset, octaveShift, sounding}], rests, warnings, parts}], meta:{engine, seconds, pages, dpi, totalPages}}`.
+
+- `X-Pages` — `1`, `1-3` или `1,3`; по умолчанию первая страница.
+- Таймаут **180 с на страницу**; одна A4-страница на этой машине — 27–29 с.
+- `-sheets N` + `-constant …TesseractOCR.useOCR=false`: текст не распознаём (иначе отсутствующий `tessdata` валит экспорт).
+- PNG-вход не используется: на одиночной картинке Audiveris падает на экспорте (`Measure.purgeVoices` NPE), на PDF та же страница проходит.
+- Audiveris нет → **501** с командой установки; сервис продолжает работать.
+
+### `POST /omr/pdf` (для отладки)
+
+Отдаёт сырой MusicXML из Audiveris (весь файл). Если Audiveris нет — **501**. Для пользовательского пути используйте `/notes/pdf`, для гитарных табов — `/tab/pdf`.
 
 ## Как устроено распознавание
 
@@ -94,11 +111,11 @@ curl -s -X POST --data-binary @scan.pdf \
 cd .. && python -m pytest omr-service/tests -q
 ```
 
-11 тестов: синтетическая картинка Pillow (6 линий + 0/3/5/7) → стан распознан как TAB, цифры извлечены, колонки собраны; мусорные лады 34/49, низкая уверенность и токены вне полосы отбрасываются; склейка систем в 6 строк. Тест реального OCR пропускается, если нет `tesseract`.
+23 теста: `test_notesxml.py` (12) — разбор MusicXML на фикстуре (аккорд, пауза, 8vb, `string`/`fret`, несколько партий, `X-Pages`) и 501 без Audiveris на живом HTTP-сервере; `test_tabocr.py` (11) — синтетическая картинка Pillow (6 линий + 0/3/5/7) → стан распознан как TAB, цифры извлечены, колонки собраны; мусорные лады 34/49, низкая уверенность и токены вне полосы отбрасываются; склейка систем в 6 строк. Тест реального OCR пропускается, если нет `tesseract`.
 
 ## Что не поддерживается
 
-- нотный стан без таба (нужен OMR, не OCR цифр);
+- нотный стан без таба в `/tab/pdf` — для него есть `/notes/pdf` (Audiveris);
 - рукописные табы и нестандартные шрифты;
 - ритм, штрихи, бенды, хаммеры — в ASCII-табе их нет;
 - аппликатура пальцев под станом (цифры 1–4) — отбрасывается как шум;

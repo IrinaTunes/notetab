@@ -31,14 +31,17 @@ jobs:
           import pathlib, sys
           html = pathlib.Path("index.html").read_text(encoding="utf-8")
           required = ['<html lang="ru"', 'name="viewport"', 'assets/styles.css', 'assets/app.js', '<main', '</html>',
-                      'data-mode="pdf2tab"', 'id="dropzone"', 'id="ocr-tab"', 'id="btn-ocr-apply"']
+                      'data-mode="pdf2tab"', 'id="dropzone"', 'id="ocr-tab"', 'id="btn-ocr-apply"',
+                      'data-mode="pdfnotes"', 'id="notes-drop"', 'id="notes-rows"', 'id="notes-staff"',
+                      'id="notes-xml"', 'id="btn-notes-variants"']
           missing = [r for r in required if r not in html]
           if missing:
               sys.exit(f"В index.html не хватает: {missing}")
           for asset in ("assets/styles.css", "assets/app.js", "assets/favicon.svg",
                         "src/notes.js", "src/tab.js", "src/solver.js", "src/midi.js", "src/tuning.js",
-                        "src/musicxml.js", "src/printable.js",
-                        "omr-service/server.py", "omr-service/tabocr.py",
+                        "src/musicxml.js", "src/printable.js", "src/musicxml-import.js",
+                        "src/mxl.js", "src/notelist.js",
+                        "omr-service/server.py", "omr-service/tabocr.py", "omr-service/notesxml.py",
                         "omr-service/run.sh", "omr-service/requirements.txt"):
               if not pathlib.Path(asset).is_file():
                   sys.exit(f"Нет файла {asset}")

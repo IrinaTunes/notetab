@@ -5,9 +5,10 @@
 Слушает строго 127.0.0.1:8765 — наружу ничего не отдаётся, файлы не сохраняются
 дольше одного запроса.
 
-    GET  /health      → {"ok":true,"version":"0.1.0"}
-    POST /tab/pdf     → JSON с распознанным табом
-    POST /omr/pdf     → MusicXML (только если найден Audiveris, иначе 501)
+    GET  /health      → {"ok":true,"version":"0.2.0","tesseract":bool,"audiveris":bool}
+    POST /tab/pdf     → JSON с распознанным табом (сканы ТАБ)
+    POST /notes/pdf   → JSON с нотами (Audiveris → MusicXML → ноты)
+    POST /omr/pdf     → сырой MusicXML (только если найден Audiveris, иначе 501)
 """
 
 from __future__ import annotations
@@ -16,7 +17,6 @@ import json
 import os
 import re
 import shutil
-import subprocess
 import tempfile
 from email.parser import BytesParser
 from email.policy import default as email_policy
@@ -24,6 +24,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
+import notesxml
 import tabocr
 
 HOST = "127.0.0.1"
@@ -59,62 +60,13 @@ def extract_pdf(body: bytes, content_type: str, header_name: str) -> tuple[bytes
 
 
 def find_audiveris() -> Path | None:
-    """Audiveris — экспериментальный путь для НОТНЫХ изданий; не обязателен."""
-    candidates = []
-    env = os.environ.get("AUDIVERIS_APP")
-    if env:
-        candidates.append(Path(env))
-    candidates.append(Path("/Users/irina/projects/omr-spike/Audiveris.app"))
-    candidates.append(Path("/Applications/Audiveris.app"))
-    for candidate in candidates:
-        if candidate.is_dir():
-            return candidate
-    found = shutil.which("audiveris")
-    return Path(found) if found else None
-
-
-def read_musicxml(path: Path) -> str:
-    """MusicXML из файла; .mxl — это zip с META-INF/container.xml."""
-    if path.suffix.lower() == ".mxl":
-        import zipfile
-
-        with zipfile.ZipFile(path) as archive:
-            names = archive.namelist()
-            root = None
-            if "META-INF/container.xml" in names:
-                container = archive.read("META-INF/container.xml").decode("utf-8", "replace")
-                match = re.search(r'full-path="([^"]+)"', container)
-                if match:
-                    root = match.group(1)
-            if root is None or root not in names:
-                candidates = [n for n in names if n.lower().endswith((".xml", ".musicxml"))]
-                if not candidates:
-                    raise RuntimeError("В .mxl нет XML-файла.")
-                root = max(candidates, key=lambda n: archive.getinfo(n).file_size)
-            return archive.read(root).decode("utf-8", "replace")
-    return path.read_text(encoding="utf-8", errors="replace")
+    """Audiveris — OMR нотных изданий; не обязателен для работы сервиса."""
+    return notesxml.find_audiveris()
 
 
 def run_audiveris(app: Path, pdf: Path, workdir: Path) -> str:
-    """Batch-импорт PDF в MusicXML; возвращает текст MusicXML."""
-    binary = app / "Contents" / "MacOS" / "Audiveris" if app.suffix == ".app" else app
-    if not binary.exists():
-        raise RuntimeError(f"Не найден исполняемый файл Audiveris: {binary}")
-    # «--» обязателен: -sheets съедает следующий аргумент как номер листа.
-    subprocess.run(
-        [str(binary), "-batch", "-export", "-output", str(workdir), "--", str(pdf)],
-        check=True, capture_output=True, timeout=900,
-    )
-    produced = (
-        sorted(workdir.rglob("*.musicxml"))
-        + sorted(workdir.rglob("*.mxl"))
-        + sorted(workdir.rglob("*.xml"))
-    )
-    if not produced:
-        raise RuntimeError("Audiveris не создал MusicXML.")
-    # .mxl (zip) компактнее и появляется первым; .xml в папке — служебные book.xml
-    ordered = sorted(produced, key=lambda p: (p.suffix.lower() != ".mxl", len(p.name)))
-    return read_musicxml(ordered[0])
+    """Batch-импорт PDF в MusicXML (весь файл, без выбора листов)."""
+    return notesxml.run_audiveris(app, pdf, workdir)
 
 
 # ---------------------------------------------------------------- HTTP
@@ -181,9 +133,17 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         path = urlparse(self.path).path
         if path in ("/health", "/health/"):
-            self._json(200, {"ok": True, "version": tabocr.VERSION, "tesseract": bool(shutil.which("tesseract"))})
+            app = notesxml.find_audiveris()
+            self._json(200, {
+                "ok": True,
+                "version": tabocr.VERSION,
+                "tesseract": bool(shutil.which("tesseract")),
+                "audiveris": app is not None,
+                "audiverisPath": str(app) if app else None,
+                "engine": notesxml.audiveris_version(app) if app else None,
+            })
             return
-        self._json(404, {"ok": False, "error": "Неизвестный путь. Доступны /health, /tab/pdf, /omr/pdf."})
+        self._json(404, {"ok": False, "error": "Неизвестный путь. Доступны /health, /tab/pdf, /notes/pdf, /omr/pdf."})
 
     def do_POST(self) -> None:  # noqa: N802
         path = urlparse(self.path).path
@@ -195,10 +155,12 @@ class Handler(BaseHTTPRequestHandler):
 
         if path in ("/tab/pdf", "/tab/pdf/"):
             self._handle_tab(body)
+        elif path in ("/notes/pdf", "/notes/pdf/"):
+            self._handle_notes(body)
         elif path in ("/omr/pdf", "/omr/pdf/"):
             self._handle_omr(body)
         else:
-            self._json(404, {"ok": False, "error": "Неизвестный путь. Доступны /health, /tab/pdf, /omr/pdf."})
+            self._json(404, {"ok": False, "error": "Неизвестный путь. Доступны /health, /tab/pdf, /notes/pdf, /omr/pdf."})
 
     # ---- обработчики
 
@@ -237,6 +199,52 @@ class Handler(BaseHTTPRequestHandler):
 
         self._json(200, result)
 
+    def _handle_notes(self, body: bytes) -> None:
+        """PDF (нотное издание) → список нот JSON. Нет Audiveris — 501, не падаем."""
+        app = notesxml.find_audiveris()
+        if app is None:
+            self._json(501, {
+                "ok": False,
+                "error": (
+                    "Audiveris не найден — нотный OMR недоступен. Установите его:\n"
+                    "  brew install --cask audiveris\n"
+                    "  export AUDIVERIS_APP=/Applications/Audiveris.app\n"
+                    "Либо экспортируйте MusicXML из MuseScore/Guitar Pro и загрузите в «Ноты PDF → таб»."
+                ),
+            })
+            return
+        try:
+            payload, filename = extract_pdf(
+                body, self.headers.get("Content-Type", ""), self.headers.get("X-Filename", "")
+            )
+        except ValueError as error:
+            self._json(400, {"ok": False, "error": str(error)})
+            return
+        if not payload:
+            self._json(400, {"ok": False, "error": "Пустой файл."})
+            return
+
+        with tempfile.TemporaryDirectory() as tmp:
+            pdf_path = Path(tmp) / (Path(filename or "upload.pdf").name or "upload.pdf")
+            if pdf_path.suffix.lower() != ".pdf":
+                pdf_path = pdf_path.with_suffix(".pdf")
+            pdf_path.write_bytes(payload)
+            try:
+                total = notesxml.pdf_page_count(pdf_path)
+                pages = notesxml.parse_pages(self.headers.get("X-Pages"), total)
+                result = notesxml.process_pdf(pdf_path, pages=pages)
+            except notesxml.AudiverisMissing as error:
+                self._json(501, {"ok": False, "error": str(error)})
+                return
+            except notesxml.NotesError as error:
+                self._json(422, {"ok": False, "error": str(error)})
+                return
+            except Exception as error:  # noqa: BLE001 — наружу текст, не трейс
+                self._json(500, {"ok": False, "error": f"Сбой OMR: {error}"})
+                return
+
+        self._json(200, result)
+
     def _handle_omr(self, body: bytes) -> None:
         app = find_audiveris()
         if app is None:
@@ -267,7 +275,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def main() -> int:
     server = ThreadingHTTPServer((HOST, PORT), Handler)
-    print(f"notetab OMR: http://{HOST}:{PORT}  (health: /health, таб: POST /tab/pdf)")
+    print(f"notetab OMR: http://{HOST}:{PORT}  (health: /health, таб: POST /tab/pdf, ноты: POST /notes/pdf)")
     print("Остановить: Ctrl+C")
     try:
         server.serve_forever()

@@ -29,7 +29,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 
 #: Максимальный лад, который считается осмысленным при OCR. Верхний порог
 #: намеренно выше, чем MAX_FRET=15 у конвертера: у сканов бывают лады 17–24,
