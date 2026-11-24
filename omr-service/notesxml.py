@@ -31,6 +31,11 @@ VERSION = "0.2.0"
 DEFAULT_AUDIVERIS = "/Users/irina/projects/omr-spike/Audiveris.app"
 PAGE_TIMEOUT = 180  # секунд на страницу
 DPI = 300
+# Audiveris сам растеризует PDF примерно в 300 dpi — на этом разрешении теряются
+# тихие басовые ноты и добавочные линии (проверено на «Es si tu n'existais pas»:
+# в первом такте пропадали две басовые A). Поэтому страницу рендерим сами в 600 dpi
+# и оборачиваем PNG в PDF: PNG-вход в Audiveris падает, PDF — работает.
+OCRR_DPI = int(os.environ.get("NOTES_DPI", "600"))
 
 STEP_SEMITONES = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
 NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
@@ -136,6 +141,33 @@ def _java_home() -> str | None:
 # ---------------------------------------------------------------- запуск Audiveris
 
 
+def rasterized_page_pdf(pdf: Path, page: int, workdir: Path, dpi: int | None = None) -> Path | None:
+    """Отрендерить страницу в dpi и упаковать в одностраничный PDF для Audiveris."""
+    exe = shutil.which("pdftoppm")
+    if not exe:
+        return None
+    target_dpi = dpi or OCRR_DPI
+    prefix = workdir / f"hi{page}-{target_dpi}"
+    result = subprocess.run(
+        [exe, "-r", str(target_dpi), "-png", "-f", str(page), "-l", str(page), str(pdf), str(prefix)],
+        capture_output=True, text=True, check=False,
+    )
+    if result.returncode != 0:
+        return None
+    images = sorted(workdir.glob(f"{prefix.name}*.png"))
+    if not images:
+        return None
+    try:
+        from PIL import Image
+
+        out = workdir / f"page-{page}-{target_dpi}dpi.pdf"
+        with Image.open(images[0]) as image:
+            image.convert("RGB").save(out, "PDF", resolution=target_dpi)
+        return out
+    except Exception:  # noqa: BLE001 — нет Pillow или битый растр: работаем как раньше
+        return None
+
+
 def run_audiveris(
     app: Path, source: Path, workdir: Path, sheet: int | None = None, timeout: int = PAGE_TIMEOUT
 ) -> str:
@@ -219,25 +251,49 @@ def _clefs(attributes: ET.Element) -> dict[int, int]:
 
 
 def _part_notes(part: ET.Element) -> dict:
-    """Ноты одной партии: плоский список, аккорды идут подряд по возрастанию midi."""
+    """Ноты одной партии с ЧЕСТНЫМ временем.
+
+    Раньше onset считался как порядковый номер появления ноты: <backup> и паузы
+    игнорировались, поэтому второй голос уезжал в конец такта, а бас, идущий
+    одновременно с мелодией, терял своё место. Здесь у каждого голоса свой курсор,
+    <backup>/<forward> двигают его в четвертях, <chord/> делит onset с предыдущей нотой.
+    """
     divisions = 1
     clef_shift: dict[int, int] = {}
-    onsets: list[list[dict]] = []
+    notes: list[dict] = []
     rests = 0
-    pending_chord = False
+    global_offset = 0.0
 
     for measure in _children(part, "measure"):
+        cursors: dict[str, float] = {}
+        last_onset: dict[str, float] = {}
+        measure_length = 0.0
         for child in measure:
             name = local_name(child.tag)
             if name == "attributes":
                 divisions = _int(_text(child, "divisions"), divisions) or divisions
                 clef_shift.update(_clefs(child))
                 continue
+            if name == "backup":
+                shift = _int(_text(child, "duration"), 0) / (divisions or 1)
+                for cursor_voice in list(cursors):
+                    cursors[cursor_voice] -= shift
+                continue
+            if name == "forward":
+                shift = _int(_text(child, "duration"), 0) / (divisions or 1)
+                forward_voice = _text(child, "voice", "1") or "1"
+                cursors[forward_voice] = cursors.get(forward_voice, 0) + shift
+                measure_length = max(measure_length, cursors[forward_voice])
+                continue
             if name != "note":
                 continue
+            note_voice = _text(child, "voice", "1") or "1"
             if _children(child, "rest"):
                 rests += 1
-                pending_chord = False  # пауза закрывает предыдущий аккорд
+                cursors[note_voice] = cursors.get(note_voice, 0) + (
+                    _int(_text(child, "duration"), divisions) / (divisions or 1)
+                )
+                measure_length = max(measure_length, cursors[note_voice])
                 continue
 
             pitch = next(iter(_children(child, "pitch")), None)
@@ -273,19 +329,19 @@ def _part_notes(part: ET.Element) -> dict:
                     entry["string"] = _int(string, 0)
                     entry["fret"] = _int(fret, 0)
 
-            if _children(child, "chord") and onsets:
-                onsets[-1].append(entry)  # продолжение предыдущего аккорда
-            elif _children(child, "chord") and not onsets:
-                onsets.append([entry])
+            if _children(child, "chord"):
+                onset = last_onset.get(note_voice, cursors.get(note_voice, 0.0))
             else:
-                onsets.append([entry])
+                onset = cursors.get(note_voice, 0.0)
+                last_onset[note_voice] = onset
+                cursors[note_voice] = onset + entry["duration"]
+            entry["onset"] = round(global_offset + onset, 3)
+            measure_length = max(measure_length, onset + entry["duration"])
+            notes.append(entry)
 
-    notes: list[dict] = []
-    for index, group in enumerate(onsets):
-        group.sort(key=lambda n: n["midi"])
-        for note in group:
-            note["onset"] = index
-            notes.append(note)
+        global_offset = round(global_offset + measure_length, 3)
+
+    notes.sort(key=lambda n: (n["onset"], n["midi"]))
     return {"notes": notes, "rests": rests}
 
 
@@ -414,7 +470,11 @@ def process_pdf(pdf_path: Path, pages: list[int] | None = None) -> dict:
         with tempfile.TemporaryDirectory() as tmp:
             workdir = Path(tmp)
             try:
-                xml_text = run_audiveris(app, pdf_path, workdir, sheet=number)
+                hi_res = rasterized_page_pdf(pdf_path, number, workdir)
+                if hi_res is not None:
+                    xml_text = run_audiveris(app, hi_res, workdir, sheet=1)
+                else:
+                    xml_text = run_audiveris(app, pdf_path, workdir, sheet=number)
             except NotesError as error:
                 result_pages.append({
                     "page": number, "notes": [], "rests": 0, "parts": [],
