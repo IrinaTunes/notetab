@@ -253,6 +253,42 @@ mscore -o song.pdf song.musicxml
 Важно: OMR должен идти на 600 dpi (сервис делает это сам) — на 300 dpi теряются
 басовые ноты на добавочных линиях.
 
+### Раскладка такта: packed и onsets
+
+У `musicxml_export.py` два режима (`--layout`):
+
+- `packed` (по умолчанию) — ноты идут подряд без пауз и `<forward>`, остаток такта
+  дописывается в последнюю ноту. **MuseScore 4 открывает только такие файлы:**
+  на `<forward>` или скрытых паузах он падает с кодом 40 без сообщения об ошибке.
+- `onsets` — время как в OMR, с `<forward>` вместо пауз. Нужен, когда важна
+  расстановка по долям, а не открываемость; MuseScore такой файл, скорее всего,
+  не откроет.
+
+Пакетная сборка: `python omr-service/book2musicxml.py книга.pdf --out папка`
+(добавьте `--reuse-json`, чтобы пересобрать готовые страницы без повторного OMR).
+
+## Экспорт в Guitar Pro (.gp)
+
+`scripts/musicxml-to-gp.mjs` конвертирует MusicXML в `.gp` (формат Guitar Pro 7,
+это zip-контейнер) через alphaTab. Пакета нет в зависимостях — в CI не выполняется
+`npm install`, поэтому ставится локально:
+
+```bash
+npm i @coderline/alphatab
+node scripts/musicxml-to-gp.mjs song.musicxml song.gp
+```
+
+Тонкости, на которые легко наступить:
+
+- `Gp7Exporter().export(score, settings)` — вторым аргументом обязательно передавать
+  `new alphaTab.Settings()`, иначе экспорт падает на `Beat.finish` с
+  «Cannot read properties of undefined (reading 'notationMode')».
+- MusicXML читается через `alphaTab.importer.ScoreLoader.loadScoreFromBytes`, а
+  отдельного `MusicXmlImporter` в npm-сборке 1.9.0 нет.
+- Экспортировать лучше packed-файл: иначе `<forward>` превращаются в паузы и таб
+  в Guitar Pro выглядит «с закорючками».
+
+
 ## Ограничения (честно)
 
 - **Ритм не хранится.** Таб и список нот — это только высоты; длительности, паузы, штрихи теряются. MIDI пишется равными долями (1 нота = 1 доля, 96 PPQ, 120 BPM).
