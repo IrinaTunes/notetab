@@ -46,24 +46,28 @@ def test_two_voices_are_kept_and_bass_has_no_stem() -> None:
     assert all(n.findtext("stem") == "none" for n in bass)
 
 
-def test_no_ties_and_notes_clipped_at_barline() -> None:
+def test_no_ties_and_measure_is_filled() -> None:
     notes = [_note(72, 3.5, 2.0, "1")]   # нота длиннее остатка такта
     xml, _ = M.build(notes, "T", "S", 96)
     root = _parse(xml)
 
     assert not list(root.iter("tie")), "лиг быть не должно"
-    durations = [int(n.findtext("duration") or 0) for n in root.iter("note") if n.find("pitch") is not None]
-    assert durations == [int(0.5 * M.DIVISIONS)], "нота обрезана до конца такта (0.5 четверти)"
+    measure = root.find(".//measure")
+    total = sum(int(n.findtext("duration") or 0) for n in measure.iter("note"))
+    assert total == int(M.MEASURE * M.DIVISIONS), "такт заполняется нотами целиком"
 
 
-def test_rests_not_drawn_forward_used() -> None:
+def test_no_rests_and_no_forwards() -> None:
+    """MuseScore 4 не открывает файл с <forward>/паузами (exit 40) — их не должно быть."""
     notes = [_note(72, 0, 0.5, "1"), _note(74, 2, 0.5, "1")]
     xml, _ = M.build(notes, "T", "S", 96)
     root = _parse(xml)
 
-    drawn_rests = [n for n in root.iter("note") if n.find("rest") is not None]
-    assert drawn_rests == [], "паузы не рисуем — иначе под табом появляются закорючки"
-    assert len(list(root.iter("forward"))) >= 1, "пропуски времени идут через <forward>"
+    assert [n for n in root.iter("note") if n.find("rest") is not None] == []
+    assert list(root.iter("forward")) == [], "раскладка packed не использует <forward>"
+    measure = root.find(".//measure")
+    total = sum(int(n.findtext("duration") or 0) for n in measure.iter("note"))
+    assert total == int(M.MEASURE * M.DIVISIONS)
 
 
 def test_unplayable_note_is_dropped_and_counted() -> None:
