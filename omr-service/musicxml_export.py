@@ -73,6 +73,36 @@ def build_voice_events(notes: list[dict]) -> dict[int, list[dict]]:
     return result
 
 
+def segments_for_measure_packed(events: list[dict], measure_index: int) -> list[dict]:
+    """Плотная раскладка такта: ноты идут подряд, без пауз и <forward>.
+
+    MuseScore 4 отказывается открывать MusicXML, если в такте есть <forward> или
+    скрытые паузы (проверено: exit 40 у 86 страниц из 148). Поэтому паузы OMR
+    «съедаются»: каждая нота ставится сразу за предыдущей, а остаток такта
+    дописывается в длительность последней ноты. Ритм при этом приблизительный,
+    зато файл открывается и печатается.
+    """
+    bar_start = measure_index * MEASURE
+    bar_end = bar_start + MEASURE
+    budget = MEASURE
+    segments: list[dict] = []
+
+    for event in events:
+        if event["onset"] >= bar_end or event["onset"] + event["duration"] <= bar_start:
+            continue
+        duration = min(event["duration"], budget)
+        if duration <= 0:
+            break
+        segments.append({"kind": "note", "duration": duration, "notes": event["notes"]})
+        budget = round(budget - duration, 3)
+        if budget <= 1e-6:
+            break
+
+    if segments and budget > 1e-6:
+        segments[-1]["duration"] = round(segments[-1]["duration"] + budget, 3)
+    return segments
+
+
 def segments_for_measure(events: list[dict], measure_index: int) -> list[dict]:
     """Нарезать события голоса в пределах такта: (kind, start, duration, notes)."""
     bar_start = measure_index * MEASURE
@@ -146,7 +176,8 @@ def render_measure(segments: list[dict], voice_number: int, previous_fret: int |
     return "".join(out), previous_fret
 
 
-def build(notes: list[dict], title: str, subtitle: str, tempo: int) -> tuple[str, dict[str, int]]:
+def build(notes: list[dict], title: str, subtitle: str, tempo: int,
+          layout: str = "packed") -> tuple[str, dict[str, int]]:
     stats = {"input": len(notes), "written": 0, "dropped": 0}
     voices = build_voice_events(notes)
     last_onset = max(float(n["onset"]) + float(n["duration"]) for n in notes)
@@ -193,7 +224,11 @@ def build(notes: list[dict], title: str, subtitle: str, tempo: int) -> tuple[str
 
         for voice_number in (1, 2):
             events = voices.get(voice_number, [])
-            segments = segments_for_measure(events, measure_index)
+            segments = (
+                segments_for_measure_packed(events, measure_index)
+                if layout == "packed"
+                else segments_for_measure(events, measure_index)
+            )
             if not segments:
                 if voice_number == 1:
                     body.append(
@@ -218,6 +253,8 @@ def main() -> int:
     parser.add_argument("--title", default="Без названия")
     parser.add_argument("--subtitle", default="")
     parser.add_argument("--tempo", type=int, default=96)
+    parser.add_argument("--layout", choices=("packed", "onsets"), default="packed",
+                        help="packed — без пауз (MusicScore открывает стабильно); onsets — как в OMR")
     args = parser.parse_args()
 
     payload = json.loads(args.json_path.read_text(encoding="utf-8"))
@@ -225,7 +262,7 @@ def main() -> int:
     if not notes:
         raise SystemExit("в JSON нет нот")
 
-    xml, stats = build(notes, args.title, args.subtitle, args.tempo)
+    xml, stats = build(notes, args.title, args.subtitle, args.tempo, layout=args.layout)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(xml, encoding="utf-8")
     print(

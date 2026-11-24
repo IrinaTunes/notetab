@@ -101,6 +101,11 @@ def main() -> int:
     parser.add_argument("--title", default=None)
     parser.add_argument("--subtitle", default="")
     parser.add_argument("--no-pdf", action="store_true", help="не собирать PDF через MuseScore")
+    parser.add_argument(
+        "--reuse-json",
+        action="store_true",
+        help="не ходить в OMR заново, брать готовые page-NNN.notes.json из --out",
+    )
     args = parser.parse_args()
 
     pdf = args.pdf.expanduser().resolve()
@@ -133,8 +138,12 @@ def main() -> int:
     for index, page in enumerate(pages, start=1):
         page_started = time.time()
         print(f"[{index}/{len(pages)}] стр. {page} … ", end="", flush=True)
+        cached = out_dir / f"page-{page:03d}.notes.json"
         try:
-            payload = fetch_notes(args.service, pdf, page)
+            if args.reuse_json and cached.is_file():
+                payload = json.loads(cached.read_text(encoding="utf-8"))
+            else:
+                payload = fetch_notes(args.service, pdf, page)
         except Exception as error:  # noqa: BLE001 — сеть, таймаут, 5xx
             print(f"ошибка: {error}")
             rows.append({"page": page, "notes": 0, "error": str(error)[:120]})
@@ -153,6 +162,21 @@ def main() -> int:
         build_musicxml(notes_path, xml_path, f"{title_base} — стр. {page}", args.subtitle)
 
         pdf_ok = render_pdf(xml_path, out_dir / f"page-{page:03d}.pdf", mscore)
+        if not pdf_ok and mscore:
+            # MuseScore иногда отказывается открывать двухголосный файл (exit 40),
+            # если OMR выдал перекрывающиеся события. Тогда собираем PDF по одному
+            # голосу: MusicXML с обоими голосами остаётся на диске, а печатный таб
+            # всё равно получается.
+            single = dict(payload)
+            single["pages"] = [
+                {**chunk, "notes": [n for n in chunk.get("notes", []) if str(n.get("voice", "1")) == "1"]}
+                for chunk in payload.get("pages", [])
+            ]
+            single_path = out_dir / f"page-{page:03d}.notes-v1.json"
+            single_path.write_text(json.dumps(single, ensure_ascii=False), encoding="utf-8")
+            single_xml = out_dir / f"page-{page:03d}.v1.musicxml"
+            build_musicxml(single_path, single_xml, f"{title_base} — стр. {page} (мелодия)", args.subtitle)
+            pdf_ok = render_pdf(single_xml, out_dir / f"page-{page:03d}.pdf", mscore)
         elapsed = round(time.time() - page_started, 1)
         print(f"нот {len(notes)}, {elapsed} с" + ("" if pdf_ok or not mscore else " (PDF не собрался)"))
         rows.append({"page": page, "notes": len(notes), "seconds": elapsed, "pdf": pdf_ok})
