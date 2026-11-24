@@ -67,14 +67,36 @@ def test_pitch_to_midi() -> None:
 def test_chord_rest_and_notes() -> None:
     page = N.parse_musicxml(FIXTURE, page=1)
     assert page["page"] == 1
-    assert len(page["notes"]) == 3, "две ноты аккорда + нота после паузы"
+    assert len(page["notes"]) == 3, "две ноты аккорда + нота второго голоса"
     assert page["rests"] == 1
-    assert [n["midi"] for n in page["notes"]] == [71, 76, 61], "аккорд по возрастанию: B4, E5; затем C#4"
-    assert [n["onset"] for n in page["notes"]] == [0, 0, 1]
-    assert [n["name"] for n in page["notes"]] == ["B4", "E5", "C#4"]
-    assert page["notes"][1]["duration"] == 1.0
-    assert page["notes"][2]["duration"] == 2.0
-    assert page["notes"][2]["voice"] == "2"
+    # У каждого голоса свой курсор: без <backup> второй голос начинается с начала
+    # такта, поэтому C#4 (voice 2) звучит одновременно с аккордом, а не после паузы.
+    assert sorted(n["midi"] for n in page["notes"]) == [61, 71, 76]
+    assert [n["onset"] for n in page["notes"]] == [0, 0, 0]
+    assert page["notes"][0]["midi"] == 61, "сортировка по (onset, midi)"
+    assert {n["name"] for n in page["notes"]} == {"B4", "E5", "C#4"}
+    by_name = {n["name"]: n for n in page["notes"]}
+    assert by_name["E5"]["duration"] == 1.0
+    assert by_name["C#4"]["duration"] == 2.0
+    assert by_name["C#4"]["voice"] == "2"
+
+
+def test_backup_moves_second_voice_to_measure_start() -> None:
+    xml = FIXTURE.replace(
+        "</measure>",
+        """
+      <backup><duration>8</duration></backup>
+      <note>
+        <pitch><step>A</step><octave>2</octave></pitch>
+        <duration>8</duration><voice>3</voice><type>whole</type>
+      </note>
+    </measure>""",
+    )
+    page = N.parse_musicxml(xml, page=1)
+    bass = next(n for n in page["notes"] if n["name"] == "A2")
+    assert bass["voice"] == "3"
+    assert bass["onset"] == 0, "backup возвращает курсор к началу такта"
+    assert bass["duration"] == 4.0
 
 
 def test_octave_clef_shift() -> None:
