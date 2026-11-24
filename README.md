@@ -238,6 +238,21 @@ curl -s -X POST --data-binary @theme.pdf -H "Content-Type: application/pdf" \
 | Drop D D A D G B E | 64, 59, 55, 50, 45, 38 |
 | На полтона ниже Eb Ab Db Gb Bb Eb | 63, 58, 54, 49, 44, 39 |
 
+## Ноты PDF → таб с голосами и экспортом в MusicXML
+
+Скрипт `omr-service/musicxml_export.py` берёт JSON от `/notes/pdf` и собирает
+MusicXML с табулатурой: мелодия и бас идут отдельными голосами, ноты обрезаются
+по тактовой черте (без лиг), паузы не рисуются. Из MusicXML MuseScore делает PDF:
+
+```bash
+python omr-service/musicxml_export.py notes.json -o song.musicxml \
+  --title "Название" --subtitle "Автор, переложение" --tempo 96
+mscore -o song.pdf song.musicxml
+```
+
+Важно: OMR должен идти на 600 dpi (сервис делает это сам) — на 300 dpi теряются
+басовые ноты на добавочных линиях.
+
 ## Ограничения (честно)
 
 - **Ритм не хранится.** Таб и список нот — это только высоты; длительности, паузы, штрихи теряются. MIDI пишется равными долями (1 нота = 1 доля, 96 PPQ, 120 BPM).
